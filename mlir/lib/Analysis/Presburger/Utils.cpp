@@ -39,6 +39,9 @@ static void normalizeDivisionByGCD(SmallVectorImpl<int64_t> &dividend,
       return;
   }
 
+  if (gcd < 0)
+    gcd *= -1;
+
   // Normalize the dividend and the denominator.
   std::transform(dividend.begin(), dividend.end(), dividend.begin(),
                  [gcd](int64_t &n) { return floor(n / gcd); });
@@ -136,6 +139,30 @@ static LogicalResult getDivRepr(const IntegerPolyhedron &cst, unsigned pos,
   return success();
 }
 
+static LogicalResult getDivRepr(const IntegerPolyhedron &cst, unsigned pos,
+                                unsigned eqInd, SmallVector<int64_t, 8> &expr,
+                                unsigned &divisor) {
+
+  assert(pos <= cst.getNumIds() && "Invalid identifier position");
+  assert(eqInd <= cst.getNumEqualities() && "Invalid equality position");
+
+  // Extract divisor.
+  int64_t temp_div = cst.atEq(eqInd, pos);
+  int64_t mul_idx = temp_div < 0 ? -1 : 1;
+
+  divisor = temp_div * mul_idx;
+
+  expr.resize(cst.getNumCols(), 0);
+  for (unsigned i = 0, e = cst.getNumIds(); i < e; ++i)
+    if (i != pos)
+      expr[i] = mul_idx * cst.atEq(eqInd, i);
+
+  expr.back() = mul_idx * cst.atEq(eqInd, cst.getNumCols() - 1);
+  normalizeDivisionByGCD(expr, divisor);
+
+  return success();
+}
+
 /// Check if the pos^th identifier can be expressed as a floordiv of an affine
 /// function of other identifiers (where the divisor is a positive constant).
 /// `foundRepr` contains a boolean for each identifier indicating if the
@@ -144,15 +171,16 @@ static LogicalResult getDivRepr(const IntegerPolyhedron &cst, unsigned pos,
 /// be computed. If the representation could be computed, `dividend` and
 /// `denominator` are set. If the representation could not be computed,
 /// `llvm::None` is returned.
-Optional<std::pair<unsigned, unsigned>> presburger_utils::computeSingleVarRepr(
+presburger_utils::LocalRepr presburger_utils::computeSingleVarRepr(
     const IntegerPolyhedron &cst, ArrayRef<bool> foundRepr, unsigned pos,
     SmallVector<int64_t, 8> &dividend, unsigned &divisor) {
   assert(pos < cst.getNumIds() && "invalid position");
   assert(foundRepr.size() == cst.getNumIds() &&
          "Size of foundRepr does not match total number of variables");
 
-  SmallVector<unsigned, 4> lbIndices, ubIndices;
-  cst.getLowerAndUpperBoundIndices(pos, &lbIndices, &ubIndices);
+  LocalRepr repr;
+  SmallVector<unsigned, 4> lbIndices, ubIndices, eqIndices;
+  cst.getLowerAndUpperBoundIndices(pos, &lbIndices, &ubIndices, &eqIndices);
 
   for (unsigned ubPos : ubIndices) {
     for (unsigned lbPos : lbIndices) {
@@ -178,9 +206,37 @@ Optional<std::pair<unsigned, unsigned>> presburger_utils::computeSingleVarRepr(
       if (c < f)
         continue;
 
-      return std::make_pair(ubPos, lbPos);
+      repr.kind = ReprKind::Inequality;
+      repr.repr.inEqualityPair = {ubPos, lbPos};
+      return repr;
     }
   }
+  for (unsigned eqPos : eqIndices) {
+    // Attempt to get divison representation from ubPos, lbPos.
+    if (failed(getDivRepr(cst, pos, eqPos, dividend, divisor)))
+      continue;
 
-  return llvm::None;
+    // Check if the inequalities depend on a variable for which
+    // an explicit representation has not been found yet.
+    // Exit to avoid circular dependencies between divisions.
+    unsigned c, f;
+    for (c = 0, f = cst.getNumIds(); c < f; ++c) {
+      if (c == pos)
+        continue;
+      if (!foundRepr[c] && dividend[c] != 0)
+        break;
+    }
+
+    // Expression can't be constructed as it depends on a yet unknown
+    // identifier.
+    // TODO: Visit/compute the identifiers in an order so that this doesn't
+    // happen. More complex but much more efficient.
+    if (c < f)
+      continue;
+
+    repr.kind = ReprKind::Equality;
+    repr.repr.equalityIdx = eqPos;
+    return repr;
+  }
+  return repr;
 }

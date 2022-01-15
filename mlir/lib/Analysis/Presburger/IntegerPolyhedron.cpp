@@ -833,11 +833,18 @@ void IntegerPolyhedron::getLocalReprs(
     changed = false;
     for (unsigned i = 0, e = getNumLocalIds(); i < e; ++i) {
       if (!foundRepr[i + divOffset]) {
-        if (auto res = presburger_utils::computeSingleVarRepr(
-                *this, foundRepr, divOffset + i, dividends[i],
-                denominators[i])) {
+        auto res = presburger_utils::computeSingleVarRepr(
+            *this, foundRepr, divOffset + i, dividends[i], denominators[i]);
+        if (res.kind == presburger_utils::ReprKind::Inequality) {
           foundRepr[i + divOffset] = true;
-          repr[i] = res;
+          repr[i] = {res.repr.inEqualityPair.lowerBoundIdx,
+                     res.repr.inEqualityPair.upperBoundIdx};
+          changed = true;
+        }
+        else if (res.kind == presburger_utils::ReprKind::Equality) {
+          foundRepr[i + divOffset] = true;
+          repr[i] = {res.repr.equalityIdx,
+                     res.repr.equalityIdx};
           changed = true;
         }
       }

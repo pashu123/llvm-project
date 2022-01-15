@@ -215,12 +215,12 @@ public:
   /// Gather positions of all lower and upper bounds of the identifier at `pos`,
   /// and optionally any equalities on it. In addition, the bounds are to be
   /// independent of identifiers in position range [`offset`, `offset` + `num`).
-  void
-  getLowerAndUpperBoundIndices(unsigned pos,
-                               SmallVectorImpl<unsigned> *lbIndices,
-                               SmallVectorImpl<unsigned> *ubIndices,
-                               SmallVectorImpl<unsigned> *eqIndices = nullptr,
-                               unsigned offset = 0, unsigned num = 0) const;
+  void getLowerAndUpperBoundIndices(unsigned pos,
+                                    SmallVectorImpl<unsigned> *lbIndices,
+                                    SmallVectorImpl<unsigned> *ubIndices,
+                                    SmallVectorImpl<unsigned> *eqIndices,
+                                    unsigned offset = 0,
+                                    unsigned num = 0) const;
 
   /// Checks for emptiness by performing variable elimination on all
   /// identifiers, running the GCD test on each equality constraint, and

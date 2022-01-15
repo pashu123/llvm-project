@@ -3285,8 +3285,9 @@ static AffineIfOp createSeparationCondition(MutableArrayRef<AffineForOp> loops,
       return nullptr;
     }
 
-    SmallVector<unsigned, 4> lbIndices, ubIndices;
-    cst.getLowerAndUpperBoundIndices(/*pos=*/0, &lbIndices, &ubIndices);
+    SmallVector<unsigned, 4> lbIndices, ubIndices, eqIndices;
+    cst.getLowerAndUpperBoundIndices(/*pos=*/0, &lbIndices, &ubIndices,
+                                     &eqIndices);
 
     auto fLb = cst.getInequality(fullTileLbPos);
     auto fUb = cst.getInequality(fullTileUbPos);

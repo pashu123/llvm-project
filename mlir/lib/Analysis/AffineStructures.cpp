@@ -855,7 +855,8 @@ static bool detectAsFloorDiv(const FlatAffineConstraints &cst, unsigned pos,
                                                        dividend, divisor);
 
   // No upper-lower bound pair found for this var.
-  if (!ulPair)
+  if (ulPair.kind == presburger_utils::ReprKind::None ||
+      ulPair.kind == presburger_utils::ReprKind::Equality)
     return false;
 
   // Construct the dividend expression.

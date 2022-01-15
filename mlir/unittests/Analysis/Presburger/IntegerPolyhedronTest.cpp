@@ -734,6 +734,46 @@ TEST(IntegerPolyhedronTest, computeLocalReprTightUpperBound) {
   }
 }
 
+TEST(IntegerPolyhedronTest, computeLocalReprFromEquality) {
+  MLIRContext context;
+  {
+    IntegerPolyhedron poly = parsePoly(
+        "(i, j, q) : (-4*q + i + j == 0)", &context);
+    // Convert `q` to a local variable.
+    poly.convertDimToLocal(2, 3);
+
+    std::vector<SmallVector<int64_t, 8>> divisions = {{-1, -1, 0, 0}};
+    SmallVector<unsigned, 8> denoms = {4};
+
+    // Check if the divisions can be computed even with a tighter upper bound.
+    checkDivisionRepresentation(poly, divisions, denoms);
+  }
+  {
+    IntegerPolyhedron poly = parsePoly(
+        "(i, j, q) : (4*q - i - j == 0)", &context);
+    // Convert `q` to a local variable.
+    poly.convertDimToLocal(2, 3);
+
+    std::vector<SmallVector<int64_t, 8>> divisions = {{-1, -1, 0, 0}};
+    SmallVector<unsigned, 8> denoms = {4};
+
+    // Check if the divisions can be computed even with a tighter upper bound.
+    checkDivisionRepresentation(poly, divisions, denoms);
+  }
+  {
+    IntegerPolyhedron poly = parsePoly(
+        "(i, j, q) : (3*q + i + j - 2 == 0)", &context);
+    // Convert `q` to a local variable.
+    poly.convertDimToLocal(2, 3);
+
+    std::vector<SmallVector<int64_t, 8>> divisions = {{1, 1, 0, -2}};
+    SmallVector<unsigned, 8> denoms = {3};
+
+    // Check if the divisions can be computed even with a tighter upper bound.
+    checkDivisionRepresentation(poly, divisions, denoms);
+  }
+}
+
 TEST(IntegerPolyhedronTest, computeLocalReprNoRepr) {
   MLIRContext context;
   IntegerPolyhedron poly =

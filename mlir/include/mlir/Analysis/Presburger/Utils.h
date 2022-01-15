@@ -21,6 +21,18 @@ class IntegerPolyhedron;
 
 namespace presburger_utils {
 
+enum class ReprKind { Inequality, Equality, None };
+
+struct LocalRepr {
+  ReprKind kind = ReprKind::None;
+  union {
+    unsigned equalityIdx;
+    struct {
+      unsigned lowerBoundIdx, upperBoundIdx;
+    } inEqualityPair;
+  } repr;
+};
+
 /// Check if the pos^th identifier can be expressed as a floordiv of an affine
 /// function of other identifiers (where the divisor is a positive constant).
 /// `foundRepr` contains a boolean for each identifier indicating if the
@@ -29,10 +41,10 @@ namespace presburger_utils {
 /// can be computed. If the representation could be computed, `dividend` and
 /// `denominator` are set. If the representation could not be computed,
 /// `llvm::None` is returned.
-Optional<std::pair<unsigned, unsigned>>
-computeSingleVarRepr(const IntegerPolyhedron &cst, ArrayRef<bool> foundRepr,
-                     unsigned pos, SmallVector<int64_t, 8> &dividend,
-                     unsigned &divisor);
+LocalRepr computeSingleVarRepr(const IntegerPolyhedron &cst,
+                               ArrayRef<bool> foundRepr, unsigned pos,
+                               SmallVector<int64_t, 8> &dividend,
+                               unsigned &divisor);
 
 } // namespace presburger_utils
 } // namespace mlir
