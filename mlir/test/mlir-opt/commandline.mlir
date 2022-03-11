@@ -26,6 +26,7 @@
 // CHECK-NEXT: omp
 // CHECK-NEXT: pdl
 // CHECK-NEXT: pdl_interp
+// CHECK-NEXT: presburger
 // CHECK-NEXT: quant
 // CHECK-NEXT: rocdl
 // CHECK-NEXT: scf
