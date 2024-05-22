@@ -730,6 +730,104 @@ private:
   ControlPropagationFn controlFn;
 };
 
+/// Push down unpack op through collapse shape op when the packed dims can be
+/// projected to the dims after expanding. This is possible when the inner tile
+/// sizes can divide the projected dims.
+///
+/// For example:
+///
+/// %unpack = tensor.unpack %in outer_dims_perm = [0, 1]
+///     inner_dims_pos = [0, 1] inner_tiles = [8, 8] into %empty
+///     : tensor<1x32x8x8xf32> -> tensor<8x256xf32>
+/// %expanded = tensor.collapse_shape %unpack [[0, 1]]
+///     : tensor<8x256xf32> into tensor<2048xf32>
+///
+/// can be transformed into:
+///
+/// %expanded = tensor.collapse_shape %ain [[0, 1], [2], [3]]
+///     : tensor<1x32x8x8xf32> into tensor<32x8x8xf32>
+/// %unpack = tensor.unpack %expanded outer_dims_perm = [0, 1]
+///     inner_dims_pos = [0, 1] inner_tiles = [8, 8] into %empty
+///     : tensor<32x8x8xf32> -> tensor<?x256x256xf32>
+
+static LogicalResult
+pushDownUnPackOpThroughCollapseShape(tensor::UnPackOp unPackOp,
+                                   tensor::CollapseShapeOp collapseOp,
+                                   PatternRewriter &rewriter) {
+  SmallVector<int64_t> innerTileSizes = unPackOp.getStaticTiles();
+  ArrayRef<int64_t> innerDimsPos = unPackOp.getInnerDimsPos();
+  ArrayRef<int64_t> outerDimsPerm = unPackOp.getOuterDimsPerm();
+
+  auto expandTy = dyn_cast<RankedTensorType>(collapseOp.getType());
+  if (!expandTy)
+    return failure();
+  ArrayRef<int64_t> dstShape = expandTy.getShape();
+  SmallVector<ReassociationIndices> reassocIndices =
+      collapseOp.getReassociationIndices();
+
+  int64_t srcRank = unPackOp.getSourceType().getShape().size();
+
+  // Check there's a outer batch dimension that is not a part of inner dim.
+  int64_t destRank = unPackOp.getDestType().getShape().size();
+  SmallVector<int64_t> outerDim;
+  for(int i = 0; i < destRank; i++){
+    if(llvm::none_of(innerDimsPos, [&](int64_t pos){ return pos == i; })){
+      outerDim.push_back(i);
+    }
+  }
+
+  // Check that outerDims are not permuted.
+  // Should check if it's not permuted with the innerDim.
+  for(auto i : outerDim){
+    if(i != outerDimsPerm[i]){
+      return failure();
+    }
+  }
+
+  // Check that the outerDim is included in reassociation
+  // with reassociation size > 1;
+  for(auto reassociationIdx : reassocIndices){
+    if(reassociationIdx.size() > 1){
+      for(auto dim : outerDim){
+        if(llvm::none_of(reassociationIdx, [&](int64_t pos){ return pos == dim; })){
+          return failure();
+        }
+      }
+    }
+  }
+
+  SmallVector<ReassociationIndices> newReassocIndices = reassocIndices;
+
+  for(int64_t i = destRank; i < srcRank; i++){
+    newReassocIndices.push_back({i});
+  }
+
+  // Update outer_dims_perm
+  SmallVector<int64_t> newOuterDimsPerm;
+  SmallVector<int64_t> newInnerDimsPos;
+  
+  for(auto [idx, pos] : llvm::enumerate(reassocIndices)){
+    newOuterDimsPerm.push_back(outerDimsPerm[idx]);
+    newInnerDimsPos.push_back(idx);
+  }
+
+  RankedTensorType newExpandType = tensor::PackOp::inferPackedType(
+      expandTy, innerTileSizes, newInnerDimsPos, newOuterDimsPerm);
+  auto newCollapseOp = rewriter.create<tensor::CollapseShapeOp>(
+      collapseOp.getLoc(), newExpandType, unPackOp.getSource(),
+      newReassocIndices);
+
+  auto emptyOp = tensor::UnPackOp::createDestinationTensor(
+      rewriter, unPackOp.getLoc(), newCollapseOp, unPackOp.getMixedTiles(),
+      newInnerDimsPos, newOuterDimsPerm);
+  auto newUnPackOp = rewriter.create<tensor::UnPackOp>(
+      unPackOp.getLoc(), newCollapseOp.getResult(), emptyOp,
+      newInnerDimsPos, unPackOp.getMixedTiles(), newOuterDimsPerm);
+  rewriter.replaceOp(collapseOp, newUnPackOp);
+
+  return success();
+}
+
 /// Push down unpack op through expand shape op when the packed dims can be
 /// projected to the dims after expanding. This is possible when the inner tile
 /// sizes can divide the projected dims.
@@ -846,6 +944,9 @@ public:
     return TypeSwitch<Operation *, LogicalResult>(consumerOp)
         .Case([&](tensor::ExpandShapeOp op) {
           return pushDownUnPackOpThroughExpandShape(unPackOp, op, rewriter);
+        })
+        .Case([&](tensor::CollapseShapeOp op) {
+          return pushDownUnPackOpThroughCollapseShape(unPackOp, op, rewriter);
         })
         .Default([](Operation *) { return failure(); });
   }
