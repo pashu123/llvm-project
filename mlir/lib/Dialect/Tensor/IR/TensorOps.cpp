@@ -4531,17 +4531,27 @@ struct FoldTensorCastProducerOp
     if (!hasTensorCastOperand)
       return failure();
 
-    SmallVector<Type, 4> newResultTypes;
-    newResultTypes.reserve(op->getNumResults());
+    SmallVector<Type, 4> newResultTypes(op->getResultTypes());
     SmallVector<Value, 4> newOperands;
     newOperands.reserve(op->getNumOperands());
-    for (OpOperand &opOperand : op->getOpOperands()) {
-      auto tensorCastOp = opOperand.get().getDefiningOp<tensor::CastOp>();
+
+    // Returns folded operand if it can be folded into the consumer op else
+    // returns the original operand.
+    auto retFolded = [&](Value &operand) {
+      auto tensorCastOp =  operand.getDefiningOp<tensor::CastOp>();
       bool fold = canFoldIntoConsumerOp(tensorCastOp);
-      newOperands.push_back(fold ? tensorCastOp.getOperand() : opOperand.get());
-      if (op.isDpsInit(&opOperand) &&
-          !llvm::isa<MemRefType>(newOperands.back().getType()))
-        newResultTypes.push_back(newOperands.back().getType());
+      return fold ? tensorCastOp.getOperand() : operand;
+    };
+
+    for (auto operand : op.getDpsInputs()) {
+      newOperands.push_back(retFolded(operand));
+    }
+
+    for (auto &&[idx, opOperand] : llvm::enumerate(op.getDpsInits())) {
+      auto newOperand = retFolded(opOperand);
+      newOperands.push_back(newOperand);
+      if (!llvm::isa<MemRefType>(newOperand.getType()))
+        newResultTypes[idx] = newOperand.getType();
     }
 
     // Clone op.
